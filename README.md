@@ -59,3 +59,14 @@ From the repo root:
 
 ```bash
 uv sync
+```
+
+### Run the pipeline
+
+```bash
+# Download VIX data (cached to data/cache/)
+uv run python -m src.download_vix
+
+# Run the event-study skeleton
+uv run python -m src.run_event_study
+```
