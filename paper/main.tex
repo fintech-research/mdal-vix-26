@@ -1,0 +1,39 @@
+\documentclass[12pt]{article}
+
+% Packages
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{natbib}
+\usepackage{setspace}
+\usepackage{hyperref}
+
+% Path to results
+\graphicspath{{../results/figures/}}
+
+% Title
+\title{VIX Response to FOMC Announcements:\\ The Role of Press Conferences}
+\author{Finance \& Technology @ HEC Montr\'eal}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This paper examines the behavior of the CBOE Volatility Index (VIX) around Federal Open Market Committee (FOMC) announcement dates from 2011 to 2018. We investigate whether the VIX systematically declines following FOMC announcements and whether the response differs for meetings accompanied by a press conference versus those without one.
+\end{abstract}
+
+\doublespacing
+
+\input{sections/introduction}
+\input{sections/data}
+\input{sections/methodology}
+\input{sections/conclusion}
+
+\singlespacing
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
