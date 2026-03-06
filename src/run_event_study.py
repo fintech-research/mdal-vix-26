@@ -1,11 +1,15 @@
-"""Skeleton event-study pipeline: load data, compute log changes, validate events."""
+"""Event-study pipeline: load data, compute log changes, validate events,
+compute CARs, generate descriptive statistics and figures."""
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from src.config import (
     CAR_HORIZONS,
     EVENTS_CSV,
+    FIGURES_DIR,
+    TABLES_DIR,
     VIX_CACHE,
     WINDOW_POST,
     WINDOW_PRE,
@@ -72,6 +76,205 @@ def build_event_windows(
     return windows
 
 
+def compute_car(
+    window: pd.DataFrame, horizon: tuple[int, int]
+) -> float:
+    """Compute the cumulative abnormal return for a given horizon.
+
+    Parameters
+    ----------
+    window : DataFrame with columns 'event_time' and 'log_change'.
+    horizon : (start, end) tuple in event time, inclusive on both ends.
+
+    Returns
+    -------
+    CAR as the sum of log_change over the horizon.
+    """
+    start, end = horizon
+    mask = (window["event_time"] >= start) & (window["event_time"] <= end)
+    return window.loc[mask, "log_change"].sum()
+
+
+def compute_all_cars(
+    windows: dict[str, pd.DataFrame],
+    horizons: list[tuple[int, int]] | None = None,
+) -> pd.DataFrame:
+    """Compute CARs for all events and horizons.
+
+    Returns a DataFrame indexed by event date with one column per horizon.
+    """
+    if horizons is None:
+        horizons = CAR_HORIZONS
+
+    records = []
+    for date_str, window in windows.items():
+        row = {"date": date_str}
+        for h in horizons:
+            row[f"CAR({h[0]},{h[1]})"] = compute_car(window, h)
+        records.append(row)
+    if not records:
+        cols = [f"CAR({h[0]},{h[1]})" for h in horizons]
+        return pd.DataFrame(columns=cols)
+    return pd.DataFrame(records).set_index("date")
+
+
+def build_vix_level_panel(
+    events: pd.DataFrame, vix: pd.DataFrame
+) -> pd.DataFrame:
+    """Build a panel of VIX levels in event time for each valid event.
+
+    Returns a long DataFrame with columns: event_date, event_time,
+    vix_close, has_press_conf, year.
+    """
+    trading_days = vix.index
+    rows = []
+
+    for _, ev in events.iterrows():
+        if not ev["valid"]:
+            continue
+        t0_loc = trading_days.get_loc(ev["date"])
+        start = t0_loc + WINDOW_PRE
+        end = t0_loc + WINDOW_POST
+        if start < 0 or end >= len(trading_days):
+            continue
+        for tau in range(WINDOW_PRE, WINDOW_POST + 1):
+            idx = t0_loc + tau
+            rows.append({
+                "event_date": str(ev["date"].date()),
+                "event_time": tau,
+                "vix_close": vix.iloc[idx]["Close"],
+                "has_press_conf": ev["has_press_conf"],
+                "year": ev["year"],
+            })
+
+    return pd.DataFrame(rows)
+
+
+def descriptive_stats_table(
+    windows: dict[str, pd.DataFrame],
+    events: pd.DataFrame,
+) -> pd.DataFrame:
+    """Compute descriptive statistics of event-window log changes.
+
+    Returns a table with rows for: All / Press Conf / No Press Conf,
+    plus per-year breakdowns within each group.
+    """
+    # Build a flat DataFrame of per-event mean log_change in the window
+    valid_events = events[events["valid"]].copy()
+    valid_events["date_str"] = valid_events["date"].dt.strftime("%Y-%m-%d")
+
+    records = []
+    for _, ev in valid_events.iterrows():
+        date_str = ev["date_str"]
+        if date_str not in windows:
+            continue
+        w = windows[date_str]
+        # Use the CAR(0,1) as the main return measure
+        car01 = compute_car(w, (0, 1))
+        records.append({
+            "date": date_str,
+            "has_press_conf": ev["has_press_conf"],
+            "year": ev["year"],
+            "CAR(0,1)": car01,
+        })
+
+    df = pd.DataFrame(records)
+
+    def _stats(subset: pd.DataFrame, label: str) -> dict:
+        vals = subset["CAR(0,1)"]
+        return {
+            "Group": label,
+            "N": len(vals),
+            "Mean": vals.mean(),
+            "Std": vals.std(),
+            "Min": vals.min(),
+            "Median": vals.median(),
+            "Max": vals.max(),
+        }
+
+    rows = []
+    # Overall groups
+    rows.append(_stats(df, "All"))
+    rows.append(_stats(df[df["has_press_conf"] == 1], "Press Conf"))
+    rows.append(_stats(df[df["has_press_conf"] == 0], "No Press Conf"))
+
+    # By year within each group
+    for year in sorted(df["year"].unique()):
+        sub = df[df["year"] == year]
+        rows.append(_stats(sub, f"  {year} - All"))
+        pc = sub[sub["has_press_conf"] == 1]
+        if len(pc) > 0:
+            rows.append(_stats(pc, f"  {year} - Press Conf"))
+        npc = sub[sub["has_press_conf"] == 0]
+        if len(npc) > 0:
+            rows.append(_stats(npc, f"  {year} - No Press Conf"))
+
+    return pd.DataFrame(rows)
+
+
+def export_stats_table(stats: pd.DataFrame) -> None:
+    """Export descriptive statistics table as Markdown and LaTeX."""
+    TABLES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Format numeric columns
+    fmt = stats.copy()
+    for col in ["Mean", "Std", "Min", "Median", "Max"]:
+        fmt[col] = fmt[col].map(lambda x: f"{x:.4f}")
+    fmt["N"] = fmt["N"].astype(int)
+
+    # Markdown
+    md_path = TABLES_DIR / "descriptive_stats.md"
+    md_path.write_text(fmt.to_markdown(index=False))
+
+    # LaTeX
+    tex_path = TABLES_DIR / "descriptive_stats.tex"
+    tex_path.write_text(
+        fmt.to_latex(index=False, caption="Descriptive Statistics of Event-Window Returns (CAR(0,1))",
+                     label="tab:desc_stats")
+    )
+
+    print(f"Table exported to {md_path} and {tex_path}")
+
+
+def plot_vix_event_time(panel: pd.DataFrame) -> None:
+    """Plot average VIX levels in event time, split by press conference."""
+    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+
+    pc = panel[panel["has_press_conf"] == 1]
+    npc = panel[panel["has_press_conf"] == 0]
+
+    avg_pc = pc.groupby("event_time")["vix_close"].mean()
+    avg_npc = npc.groupby("event_time")["vix_close"].mean()
+
+    # Normalize to level at t-1
+    base_pc = avg_pc.loc[-1]
+    base_npc = avg_npc.loc[-1]
+    avg_pc = avg_pc / base_pc * 100
+    avg_npc = avg_npc / base_npc * 100
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(avg_pc.index, avg_pc.values, marker="o", markersize=4,
+            label="With Press Conf", linewidth=1.5)
+    ax.plot(avg_npc.index, avg_npc.values, marker="s", markersize=4,
+            label="Without Press Conf", linewidth=1.5)
+    ax.axvline(0, color="grey", linestyle="--", linewidth=0.8)
+    ax.set_xlabel("Event Time (trading days)")
+    ax.set_ylabel("VIX Level (normalized, t\u2212\u20091 = 100)")
+    ax.set_title("Average VIX Level Around FOMC Announcements")
+    ax.set_xticks(range(WINDOW_PRE, WINDOW_POST + 1))
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+
+    png_path = FIGURES_DIR / "vix_event_time.png"
+    pdf_path = FIGURES_DIR / "vix_event_time.pdf"
+    fig.savefig(png_path, dpi=150)
+    fig.savefig(pdf_path)
+    plt.close(fig)
+
+    print(f"Figure exported to {png_path} and {pdf_path}")
+
+
 def run() -> None:
     """Run the skeleton event-study pipeline with sanity checks."""
     # Load data
@@ -107,6 +310,19 @@ def run() -> None:
     print(f"\nPress-conference split (valid events):")
     print(f"  With press conf:    {pc_counts.get(1, 0)}")
     print(f"  Without press conf: {pc_counts.get(0, 0)}")
+
+    # Compute CARs
+    cars = compute_all_cars(windows)
+    print(f"\nCARs computed for {len(cars)} events:")
+    print(cars.describe().round(4))
+
+    # Descriptive statistics table
+    stats = descriptive_stats_table(windows, events)
+    export_stats_table(stats)
+
+    # VIX level figure
+    panel = build_vix_level_panel(events, vix)
+    plot_vix_event_time(panel)
 
 
 if __name__ == "__main__":
