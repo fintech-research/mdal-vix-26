@@ -1,0 +1,68 @@
+\section{Methodology and Descriptive Statistics}
+\label{sec:methodology}
+
+\subsection{VIX Log Changes}
+
+We measure the daily VIX response using close-to-close log changes. For each trading day $t$, the log change is defined as:
+\begin{equation}
+    r_t = \log(\text{VIX}_t) - \log(\text{VIX}_{t-1})
+    \label{eq:log_change}
+\end{equation}
+where $\text{VIX}_t$ denotes the closing level of the VIX index on day $t$. Log changes are approximately equal to percentage changes for small movements and have the convenient property that cumulative returns over multiple days can be computed as simple sums.
+
+\subsection{Event Windows}
+
+For each FOMC announcement, we define event day $t = 0$ as the calendar day of the announcement. We then construct an event window spanning trading days $t = -10$ to $t = +10$ relative to the announcement date. Event time is measured in trading days, so weekends and holidays are excluded. This 21-trading-day window provides sufficient context to observe both the pre-announcement drift and the post-announcement response.
+
+For each event, we extract the corresponding sequence of daily log changes from the VIX series. If an event falls too close to the boundary of our VIX data (so that the full window cannot be constructed), the event is excluded. In practice, all 64 events have complete windows given our data buffer.
+
+\subsection{Cumulative Abnormal Returns}
+
+We compute cumulative abnormal returns (CARs) over specified horizons by summing the daily log changes within each horizon:
+\begin{equation}
+    \text{CAR}(a, b) = \sum_{t=a}^{b} r_t
+    \label{eq:car}
+\end{equation}
+where $a$ and $b$ define the start and end of the horizon in event time (inclusive). We focus on three horizons:
+\begin{itemize}
+    \item $\text{CAR}(0,1)$: the announcement day plus one day, capturing the immediate response;
+    \item $\text{CAR}(0,2)$: the announcement day plus two days;
+    \item $\text{CAR}(0,5)$: the announcement day plus one trading week.
+\end{itemize}
+These horizons allow us to assess both the immediate impact and any short-term reversal or continuation.
+
+\subsection{Press-Conference Split}
+
+To test whether the presence of a press conference affects the VIX response, we partition the 64 FOMC meetings into two groups: 32 meetings with a press conference and 32 without. The press-conference effect is assessed through two approaches:
+\begin{enumerate}
+    \item A difference-in-means test comparing CARs between the two groups.
+    \item An OLS regression of the CAR on a press-conference indicator:
+    \begin{equation}
+        \text{CAR}_i(a,b) = \alpha + \beta \cdot \text{PressConf}_i + \varepsilon_i
+        \label{eq:ols}
+    \end{equation}
+    where $\text{PressConf}_i = 1$ if meeting $i$ included a press conference and 0 otherwise. The coefficient $\beta$ captures the differential VIX response associated with press conferences.
+\end{enumerate}
+
+\subsection{Descriptive Statistics}
+
+Table~\ref{tab:desc_stats} presents descriptive statistics of the two-day cumulative VIX log changes, $\text{CAR}(0,1)$, around FOMC announcements. The statistics are reported for all events, as well as separately for meetings with and without press conferences, and by year within each group.
+
+\input{../results/tables/descriptive_stats}
+
+Across all 64 events, the mean $\text{CAR}(0,1)$ is $-0.006$, suggesting a modest average decline in the VIX following FOMC announcements. The standard deviation is 0.117, indicating substantial variation across events. The range spans from $-0.338$ to $0.330$, reflecting episodes of both large VIX declines and increases around announcements.
+
+The press-conference split reveals a notable asymmetry. Meetings with press conferences exhibit a mean $\text{CAR}(0,1)$ of $-0.040$, while meetings without press conferences show a mean of $+0.028$. This suggests that the VIX tends to decline more (or increase less) when the FOMC announcement is accompanied by a press conference, consistent with the idea that press conferences help resolve additional uncertainty. The year-by-year breakdown shows that this pattern is not uniform across time---for instance, in 2018, meetings with press conferences are associated with positive CARs on average---but the overall tendency favors a larger VIX decline when a press conference is held.
+
+\subsection{VIX Dynamics Around FOMC Announcements}
+
+Figure~\ref{fig:vix_event_time} displays the average VIX level in event time, normalized so that the level at $t = -1$ equals 100. The two series correspond to meetings with and without press conferences.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{vix_event_time.pdf}
+    \caption{Average VIX level around FOMC announcements in event time, normalized to 100 at $t = -1$. The blue line (circles) represents meetings with a press conference ($N = 32$), and the orange line (squares) represents meetings without a press conference ($N = 32$). The dashed vertical line marks the announcement day ($t = 0$).}
+    \label{fig:vix_event_time}
+\end{figure}
+
+Several patterns emerge from the figure. Both groups show a rise in the VIX in the days leading up to the announcement, consistent with uncertainty building ahead of the FOMC decision. At $t = 0$, the two series are close to 100 by construction of the normalization. After the announcement, the paths diverge sharply. For meetings with a press conference, the VIX drops to approximately 95 at $t = 0$ and remains below the pre-announcement level through $t = +10$, gradually recovering toward 99. For meetings without a press conference, the VIX rises above 100 immediately after the announcement, reaching approximately 104 by $t = +3$ before reverting. This divergence is consistent with press conferences providing additional clarity that reduces implied volatility, whereas meetings without press conferences may leave more residual uncertainty.

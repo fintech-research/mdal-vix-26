@@ -1,0 +1,22 @@
+\section{Data}
+\label{sec:data}
+
+Our analysis relies on two data sources: daily closing levels of the CBOE Volatility Index (VIX) and a hand-curated list of FOMC announcement dates.
+
+\subsection{VIX Data}
+
+We obtain daily closing prices for the VIX index (ticker \texttt{\^{}VIX}) from Yahoo Finance using the \texttt{yfinance} Python library. The download covers the period from June 1, 2010 to June 1, 2019, providing a buffer of approximately six months before the first event (January 26, 2011) and after the last event (December 19, 2018). This buffer ensures that we have sufficient data to construct full event windows around all FOMC announcements in our sample.
+
+The raw data contains daily observations with opening, high, low, and closing prices, as well as trading volume. We retain only the closing price for our analysis. After downloading, the data is cached locally to ensure reproducibility across runs. The resulting dataset contains approximately 2,265 trading days.
+
+\subsection{FOMC Events}
+
+The FOMC event list covers all 64 scheduled FOMC meetings from January 2011 through December 2018, with eight meetings per year. For each meeting, we record the announcement date and whether the meeting was followed by a press conference by the Fed Chair. During this period, press conferences were held at four of the eight annual meetings (those following two-day meetings in March, June, September, and December, with minor variations across years). This yields 32 meetings with press conferences and 32 without.
+
+The event list is stored as a CSV file with three columns: the announcement date, a binary indicator for whether the meeting included a press conference (\texttt{has\_press\_conf}), and the year. All 64 event dates correspond to valid US trading days, confirmed by matching against the VIX price series.
+
+\subsection{Data Cleaning}
+
+The VIX daily data requires minimal cleaning. We sort observations chronologically by date and verify that there are no missing closing prices within the sample period. We do not apply any filters or outlier removal, as the VIX index is computed by the CBOE from S\&P 500 option prices and does not suffer from the data quality issues common to individual stock data.
+
+For the event data, we validate that each FOMC announcement date appears in the VIX trading calendar. Any event date that does not match a trading day would be flagged; in practice, all 64 dates in our sample are valid trading days.
